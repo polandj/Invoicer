@@ -17,7 +17,7 @@ var settings = getSheetSettings()
 function getSheetSettings() {
   var ss = SpreadsheetApp.openByUrl(SHEETS_URL)
   var sheet = ss.getSheetByName('Summary')
-  var data = sheet.getRange('A2:B5').getValues()
+  var data = sheet.getRange('A2:B8').getValues()
   var ret = {}
   for (var i = 0; i < data.length; i++) {
     if (data[i][0]) {
@@ -37,18 +37,29 @@ function lastDayInPreviousMonth(yourDate) {
   return new Date(yourDate.getFullYear(), yourDate.getMonth(), 0)
 }
 
-function sendLastInvoice(ss, sheets, paidInvoices) {
+function monthAndYear(givenDate) {
+  const month = givenDate.toLocaleString('en-us', { month: 'long' })
+  const year = givenDate.getFullYear()
+  return month + " " + year
+}
+
+function sendLastInvoice(previousMonthDate, ss, sheets, paidInvoices) {
   // Hide all sheets (but the last one, which isn't in sheets), otherwise they appear in PDF
   for (const sheet of sheets) {
     if (!sheet.isSheetHidden()) {
       sheet.hideSheet()
     }
   }
+  const monYr = monthAndYear(previousMonthDate)
+
   var message = {
     to: settings.EMAIL_TO,
-    subject: settings.SUBJECT_PREFIX + " " + sheets.length,
-    body: ["Hi,", "Please find invoice " + sheets.length + " attached.", "Thank you!"].join('\n\n'),
+    subject: settings.SUBJECT_PREFIX + " - " + monYr,
+    body: ["Hi,", "Please find invoice " + sheets.length + " for " + monYr + " attached.", "Thank you!"].join('\n\n'),
     attachments: [ss.getAs(MimeType.PDF).setName(settings.PDF_NAME_PREFIX + sheets.length)]
+  }
+  if ('EMAIL_CC' in settings) {
+    message.cc = settings.EMAIL_CC
   }
   MailApp.sendEmail(message)
   // Unhide any not paid
@@ -63,9 +74,17 @@ function generateNewInvoice() {
   var ss = SpreadsheetApp.openByUrl(SHEETS_URL)
   var sheets = ss.getSheets()
 
+  if ('MAX_INVOICES' in settings && sheets.length > settings.MAX_INVOICES) {
+    console.log('Already generated ' + settings.MAX_INVOICES + ' invoices...skipping this invoice')
+    return
+  } else {
+    console.log('Generating invoice ' + sheets.length)
+  }
+
   // Create new Sheet for invoice and update fields
   ss.setActiveSheet(sheets[sheets.length-1]) // Duplicate the last sheet as our template
   var newSheet = ss.duplicateActiveSheet()
+  newSheet.showSheet()
   var invoiceId = sheets.length
   newSheet.setName(invoiceId)
   var idRange = newSheet.getRange('E3') // Update this to match your invoice template
@@ -94,5 +113,5 @@ function generateNewInvoice() {
   }
 
   // Send it
-  sendLastInvoice(ss, sheets, paidInvoices)
+  sendLastInvoice(lastDayInPreviousMonth(today), ss, sheets, paidInvoices)
 }
